@@ -1,0 +1,13 @@
+EXPORTS
+	SupportLongMode
+	SupportSSE
+	SupportSSE2
+	SupportSSE3
+	SupportSSSE3
+	SupportSSE41
+	SupportSSE42
+	SupportAVX
+	SupportAVX2
+	SupportAVX512
+	SupportAES
+	SupportRDRND
