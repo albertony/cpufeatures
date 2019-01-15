@@ -74,8 +74,11 @@ typedef struct CPUFeatures_ {
 
 #define CPUID_EDX_SSE2    0x04000000
 
-#define XCR0_SSE 0x00000002
-#define XCR0_AVX 0x00000004
+#define XCR0_SSE       0x00000002
+#define XCR0_AVX       0x00000004
+#define XCR0_OPMASK    0x00000020
+#define XCR0_ZMM_HI256 0x00000040
+#define XCR0_HI16_ZMM  0x00000080
 
 static int _arm_cpu_features(CPUFeatures * const cpu_features)
 {
@@ -146,6 +149,7 @@ static int _intel_cpu_features(CPUFeatures * const cpu_features)
 {
     unsigned int cpu_info[4];
     unsigned int id;
+    uint32_t     xcr0 = 0U;
 
     _cpuid(cpu_info, 0x0);
     if ((id = cpu_info[0]) == 0U) {
@@ -177,10 +181,12 @@ static int _intel_cpu_features(CPUFeatures * const cpu_features)
 #endif
 
     cpu_features->has_avx = 0;
+
+    (void) xcr0;
 #ifdef HAVE_AVXINTRIN_H
     if ((cpu_info[2] & (CPUID_ECX_AVX | CPUID_ECX_XSAVE | CPUID_ECX_OSXSAVE)) ==
         (CPUID_ECX_AVX | CPUID_ECX_XSAVE | CPUID_ECX_OSXSAVE)) {
-        uint32_t xcr0 = 0U;
+        xcr0 = 0U;
 # if defined(HAVE__XGETBV) || \
         (defined(_MSC_VER) && defined(_XCR_XFEATURE_ENABLED_MASK) && _MSC_FULL_VER >= 160040219)
         xcr0 = (uint32_t) _xgetbv(0);
@@ -229,7 +235,11 @@ static int _intel_cpu_features(CPUFeatures * const cpu_features)
         unsigned int cpu_info7[4];
 
         _cpuid(cpu_info7, 0x00000007);
-        cpu_features->has_avx512f = ((cpu_info7[1] & CPUID_EBX_AVX512F) != 0x0);
+        if ((cpu_info7[1] & CPUID_EBX_AVX512F) == CPUID_EBX_AVX512F &&
+            (xcr0 & (XCR0_OPMASK | XCR0_ZMM_HI256 | XCR0_HI16_ZMM))
+            == (XCR0_OPMASK | XCR0_ZMM_HI256 | XCR0_HI16_ZMM)) {
+            cpu_features->has_avx512f = 1;
+        }
     }
 #endif
 
@@ -242,7 +252,7 @@ static int _intel_cpu_features(CPUFeatures * const cpu_features)
 #endif
 
 #ifdef HAVE_RDRAND
-   cpu_features->has_rdrand = ((cpu_info[2] & CPUID_ECX_RDRAND) != 0x0);
+    cpu_features->has_rdrand = ((cpu_info[2] & CPUID_ECX_RDRAND) != 0x0);
 #else
     cpu_features->has_rdrand = 0;
 #endif
