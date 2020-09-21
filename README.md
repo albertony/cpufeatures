@@ -17,19 +17,24 @@ a complete CPU features mode like in this project.
 ## CPUFeatures
 
 Command line application for checking which CPU features (extended instruction sets) the
-processor it runs on support. Can run different functions: Default is to use
-a cross-platform method showing only the most important features. By specifying
-command line argument -microsoft (-m or -ms) it will use a Microsoft-specific
+processor it runs on support. In case of AVX features, when using the [default mode](#default-mode),
+it also includes additional check for required operating support.
+
+Can run different functions:
+Default is to use a cross-platform method showing only the most important features.
+By specifying command line argument -microsoft (-m or -ms) it will use a Microsoft-specific
 variant instead, which reports a more complete set of features. Then there is
 a special variant for showing complete set of AVX features (but nothing else),
 triggered with argument -avx (-a). This is also a Microsoft-specific variant.
+
 By default all known features are listed and marked as supported or unsupported
 but can instead list only the supported or unsupported by specifying either
 argument -supported (-s) or -unsupported (-u). Optionally the result can be
 presented as XML instead of the default human readable format, by specifying
 argument -xml (-x). This can be useful when called from for example PowerShell.
-has suffix 32 or 64 according to platform architecture, and debug builds have
-additional suffix d.
+
+The executable has name suffix 32 or 64 according to platform architecture,
+and debug builds have additional suffix d.
 
 ### Usage
 
@@ -45,6 +50,15 @@ Intel/AMD as well as ARM processors, and can (in theory) be compiled on Microsof
 On Microsoft it mainly uses the Microsoft-specific __cpuid intrinsic, on other platforms
 it resort to inline assembly code, generating the cpuid instruction, available on x86 and x64,
 that queries the processor for information.
+
+**Note:** The returned status of AVX features in this mode does not only indicate that it is supported
+in hardware by the processor; it tells if it is supported by the processor _and_ supported by the
+operating system, _and_ that it is currently enabled in the operating system! It basically tells
+you if AVX instructions actually can be used or not, on the current system.
+See the following [Stack Overflow answer](https://stackoverflow.com/questions/44144763/avx-feature-detection-using-sigill-versus-cpu-probing/44157138#44157138) for a description of the
+algorithm used.
+This is different from the [Microsoft mode](#microsoft-mode), where only processor hardware
+support is reported.
 
 Most of the source code is copied from libsodium (src/libsodium/sodium/runtime.c and
 src/libsodium/include/sodium/private/common.h), just slightly modified to fit my
@@ -138,8 +152,8 @@ For example desktop processors will additionally support CD, VL, and BW/DQ, whil
 ## CPUFeaturesCustomAction
 
 Windows installer custom action library for checking CPU features (extended instruction
-set support) of the executing processor. Contains individual methods each checking a single
-specific CPU feature.
+set support) of the executing processor. Based on the [Microsoft mode](#microsoft-mode)
+described above. Contains individual methods each checking a single specific CPU feature.
 
 The following are the exposed functions:
 
@@ -217,6 +231,7 @@ property value has not been executed yet.
 
 Minimalistic library for exposing the __cpuid/__cpuidex intrinsics, which can be used to
 check CPU features (extended instruction set support) of the executing processor.
+Based on the [Microsoft mode](#microsoft-mode) described above.
 
 This library exports two functions, cpuid and cpuidex, which executes the corresponding
 intrinsic function. The implementations handle the raw input and output of the intrinsic
