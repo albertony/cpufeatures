@@ -32,23 +32,40 @@
 //#include "private/common.h"
 //#include "runtime.h"
 
-#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_AMD64) || defined(_M_IX86))
-# include <intrin.h>
-# define HAVE_INTRIN_H    1
-# define HAVE_MMINTRIN_H  1
-# define HAVE_EMMINTRIN_H 1
-# define HAVE_PMMINTRIN_H 1
-# define HAVE_TMMINTRIN_H 1
-# define HAVE_SMMINTRIN_H 1
-# define HAVE_AVXINTRIN_H 1
-# if _MSC_VER >= 1600
-#  define HAVE_WMMINTRIN_H 1
-# endif
-//# if _MSC_VER >= 1700 && defined(_M_X64)
-# if _MSC_VER >= 1700 // Albertony: Removed condition on _M_X64: When used as a utility for checking CPU features AVX2 features can be tested by a 32-bit build, but when used as part of an application (as in the original libsodium) it makes sense to only check for AVX from a 64-bit build!
-#  define HAVE_AVX2INTRIN_H 1
-#  define HAVE_RDRAND 1 // Albertony: Added 14.06.2018
-# endif
+#ifdef _MSC_VER
+
+# if defined(_M_X64) || defined(_M_IX86)
+#  include <intrin.h>
+
+#  define HAVE_INTRIN_H    1
+#  define HAVE_MMINTRIN_H  1
+#  define HAVE_EMMINTRIN_H 1
+#  define HAVE_PMMINTRIN_H 1
+#  define HAVE_TMMINTRIN_H 1
+#  define HAVE_SMMINTRIN_H 1
+#  define HAVE_AVXINTRIN_H 1
+#  if _MSC_VER >= 1600
+#   define HAVE_WMMINTRIN_H 1
+#  endif
+//#  if _MSC_VER >= 1700 && defined(_M_X64)
+#  if _MSC_VER >= 1700 // Albertony: Removed condition on _M_X64: When used as a utility for checking CPU features AVX2 features can be tested by a 32-bit build, but when used as part of an application (as in the original libsodium) it makes sense to only check for AVX from a 64-bit build!
+#   define HAVE_AVX2INTRIN_H 1
+#   define HAVE_RDRAND 1 // Albertony: Added 14.06.2018
+#  endif
+//#  if _MSC_VER >= 1910 && defined(_M_X64)
+#  if _MSC_VER >= 1910 // Albertony: Removed condition on _M_X64
+#   define HAVE_AVX512FINTRIN_H 1
+#  endif
+
+# elif defined(_M_ARM64)
+
+#  ifndef __ARM_NEON
+#   define __ARM_NEON 1
+#  endif
+#  define HAVE_ARMCRYPTO 1
+
+# endif /* _MSC_VER */
+
 #elif defined(HAVE_INTRIN_H)
 # include <intrin.h>
 #endif
@@ -99,23 +116,43 @@ static int _arm_cpu_features(CPUFeatures * const cpu_features)
     return -1; /* LCOV_EXCL_LINE */
 #endif
 
-#if defined(__ARM_NEON) || defined(__aarch64__)
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
     cpu_features->has_neon = 1;
-#elif defined(HAVE_ANDROID_GETCPUFEATURES) && defined(ANDROID_CPU_ARM_FEATURE_NEON)
+#elif defined(HAVE_ANDROID_GETCPUFEATURES)
     cpu_features->has_neon =
-        (android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON) != 0x0;
-#elif defined(HAVE_GETAUXVAL) && defined(AT_HWCAP) && defined(__aarch64__)
+        (android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_ASIMD) != 0x0;
+#elif (defined(__aarch64__) || defined(_M_ARM64)) && defined(AT_HWCAP)
+# ifdef HAVE_GETAUXVAL
     cpu_features->has_neon = (getauxval(AT_HWCAP) & (1L << 1)) != 0;
-#elif defined(HAVE_GETAUXVAL) && defined(AT_HWCAP) && defined(__arm__)
+# elif defined(HAVE_ELF_AUX_INFO)
+    {
+        unsigned long buf;
+        if (elf_aux_info(AT_HWCAP, (void*)&buf, (int)sizeof buf) == 0) {
+            cpu_features->has_neon = (buf & (1L << 1)) != 0;
+        }
+    }
+# endif
+#elif defined(__arm__) && defined(AT_HWCAP)
+# ifdef HAVE_GETAUXVAL
     cpu_features->has_neon = (getauxval(AT_HWCAP) & (1L << 12)) != 0;
+# elif defined(HAVE_ELF_AUX_INFO)
+    {
+        unsigned long buf;
+        if (elf_aux_info(AT_HWCAP, (void*)&buf, (int)sizeof buf) == 0) {
+            cpu_features->has_neon = (buf & (1L << 12)) != 0;
+        }
+    }
+# endif
 #endif
 
     if (cpu_features->has_neon == 0) {
         return 0;
     }
 
-#if __ARM_FEATURE_CRYPTO
+#if defined(__ARM_FEATURE_CRYPTO) && defined(__ARM_FEATURE_AES)
     cpu_features->has_armcrypto = 1;
+#elif defined(_M_ARM64)
+    cpu_features->has_armcrypto = 1; /* assuming all CPUs supported by ARM Windows have the crypto extensions */
 #elif defined(__APPLE__) && defined(CPU_TYPE_ARM64) && defined(CPU_SUBTYPE_ARM64E)
     {
         cpu_type_t    cpu_type;
@@ -132,13 +169,31 @@ static int _arm_cpu_features(CPUFeatures * const cpu_features)
             cpu_features->has_armcrypto = 1;
         }
     }
-#elif defined(HAVE_ANDROID_GETCPUFEATURES) && defined(ANDROID_CPU_ARM_FEATURE_AES)
+#elif defined(HAVE_ANDROID_GETCPUFEATURES)
     cpu_features->has_armcrypto =
-        (android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_AES) != 0x0;
-#elif defined(HAVE_GETAUXVAL) && defined(AT_HWCAP) && defined(__aarch64__)
+        (android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_AES) != 0x0;
+#elif (defined(__aarch64__) || defined(_M_ARM64)) && defined(AT_HWCAP)
+# ifdef HAVE_GETAUXVAL
     cpu_features->has_armcrypto = (getauxval(AT_HWCAP) & (1L << 3)) != 0;
-#elif defined(HAVE_GETAUXVAL) && defined(AT_HWCAP2) && defined(__arm__)
+# elif defined(HAVE_ELF_AUX_INFO)
+    {
+        unsigned long buf;
+        if (elf_aux_info(AT_HWCAP, (void*)&buf, (int)sizeof buf) == 0) {
+            cpu_features->has_armcrypto = (buf & (1L << 3)) != 0;
+        }
+    }
+# endif
+#elif defined(__arm__) && defined(AT_HWCAP2)
+# ifdef HAVE_GETAUXVAL
     cpu_features->has_armcrypto = (getauxval(AT_HWCAP2) & (1L << 0)) != 0;
+# elif defined(HAVE_ELF_AUX_INFO)
+    {
+        unsigned long buf;
+        if (elf_aux_info(AT_HWCAP2, (void*)&buf, (int)sizeof buf) == 0) {
+            cpu_features->has_armcrypto = (buf & (1L << 0)) != 0;
+        }
+    }
+# endif
 #endif
 
     return 0;
@@ -146,8 +201,7 @@ static int _arm_cpu_features(CPUFeatures * const cpu_features)
 
 static void _cpuid(unsigned int cpu_info[4U], const unsigned int cpu_info_type)
 {
-#if defined(_MSC_VER) && \
-    (defined(_M_X64) || defined(_M_AMD64) || defined(_M_IX86))
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
     __cpuid((int *) cpu_info, cpu_info_type);
 #elif defined(HAVE_CPUID)
     cpu_info[0] = cpu_info[1] = cpu_info[2] = cpu_info[3] = 0;
@@ -189,11 +243,10 @@ static void _cpuid(unsigned int cpu_info[4U], const unsigned int cpu_info_type)
 static int _intel_cpu_features(CPUFeatures * const cpu_features)
 {
     unsigned int cpu_info[4];
-    unsigned int id;
     uint32_t     xcr0 = 0U;
 
     _cpuid(cpu_info, 0x0);
-    if ((id = cpu_info[0]) == 0U) {
+    if (cpu_info[0] == 0U) {
         return -1; /* LCOV_EXCL_LINE */
     }
     _cpuid(cpu_info, 0x00000001);
